@@ -40,29 +40,37 @@ proper Python package, installable into our virtualenv.
 .. _kotti_media: http://pypi.python.org/pypi/kotti_media/
 .. _kotti_gallery: http://pypi.python.org/pypi/kotti_gallery/
 .. _kotti_blog: http://pypi.python.org/pypi/kotti_blog/
+.. _bobtemplates.kotti: http://pypi.python.org/pypi/bobtemplates.kotti/
 
 Creating the Add-On Package
 ---------------------------
 
 To create our add-on, we'll use a starter template from
-``kotti_paster``.  For this, we'll need to first install the
-``kotti_paster`` package into our virtualenv (the one that was created
+``bobtemplates.kotti``.  For this, we'll need to first install the
+``bobtemplates.kotti`` package into our virtualenv (the one that was created
 during the :ref:`installation`).
 
 .. code-block:: bash
 
-  bin/pip install kotti_paster
+  mkdir mysite && cd mysite && virtualenv .
+  bin/pip install mr.bob
+  bin/pip install bobtemplates.kotti==0.2a1
 
-With ``kotti_paster`` installed, we can now create the skeleton for
+With ``bobtemplates.kotti`` installed, we can now create the skeleton for
 the add-on package:
 
 .. code-block:: bash
 
-  bin/paster create -t kotti_addon kotti_mysite
+  bin/mrbob -O kotti_mysite bobtemplates.kotti:addon
 
-Running this command, it will ask us a number of questions.  Hit
-enter for every question to accept the defaults.  When finished,
-observe that a new directory called ``kotti_mysite`` was added to the
+Running this command, it will ask us a number of questions. The first question
+asks for the name, what should be answered with ``kotti_mysite``. Hit
+enter for the next questions to accept the defaults.  For the question ``Class
+name for the content type`` enter ``Poll``, also as human readable name. We will
+need this for the second part of our tutorial. For a full explanation of the questions
+consult the README of `bobtemplates.kotti`_ itself.
+
+When finished, observe that a new directory called ``kotti_mysite`` was added to the
 current working directory, as mysite/kotti_mysite.
 
 Installing Our New Add-On
@@ -88,7 +96,9 @@ This will install the package in *development mode*:
 .. code-block:: bash
 
   cd kotti_mysite
+  ../bin/pip install -r https://raw.githubusercontent.com/Kotti/Kotti/0.10a2/requirements.txt
   ../bin/python setup.py develop
+  wget https://raw.githubusercontent.com/Kotti/Kotti/0.10a2/app.ini
 
 .. note::
 
@@ -122,15 +132,23 @@ Now you're ready to fire up the Kotti site again:
   cd ..
   bin/pserve app.ini
 
-Visit the site in your browser and notice how the the title now has a
-shadow.
 
-Adding CSS Files
-----------------
+Adding static resources
+-----------------------
+Static resources are your CSS and Javascript files in the main. In the next
+steps we will see how Kotti handles the static resources files and how these
+files are included in the site.
 
-How was the color for the shadow changed?  Take a look into the directory
-``kotti_mysite/kotti_mysite/static/``. This is where the CSS file
-lives.
+Lets give the title a litte shadow. Take a look into the directory
+``kotti_mysite/kotti_mysite/static/``. This is where the CSS file lives. Open
+the the file ``kotti_mysite/kotti_mysite/static/style.css`` in your editor and
+add a style to it:
+
+.. code-block:: css
+
+  h1, h2, h3 {
+    text-shadow: 4px 4px 2px #ccc;
+  }
 
 How is it hooked up with Kotti?  Kotti uses fanstatic_ for managing
 its static resources.  fanstatic_ has a number of cool features -- you
@@ -146,25 +164,53 @@ creation of the necessary fanstatic components is done:
   from fanstatic import Group
   from fanstatic import Library
   from fanstatic import Resource
+  from js.jquery import jquery
 
-  library = Library("kotti_mysite", "static")
-  kotti_mysite_css = Resource(library, "style.css")
-  kotti_mysite_group = Group([kotti_mysite_css])
+  library = Library('kotti_mysite', 'static')
 
-If you wanted to add a JavaScript file, you would do this very
-similarly. To add a JavaScript file called script.js, you would add a
+  css = Resource(
+      library,
+      'css/style.css',
+      minified='css/style.min.css'
+  )
+
+  js = Resource(
+      library,
+      'js/script.js',
+      minified='js/script.min.js',
+      depends=[jquery, ]
+  )
+
+  kotti_mysite = Group([css, js, ])
+
+To integrate your group into your setup add the following line to the
+``kotti_configure`` function in the file
+``kotti_mysite/kotti_mysite/__init__.py``:
+
+.. code-block:: python
+
+  def kotti_configure(settings):
+      ...
+      settings['kotti.fanstatic.view_needed'] += ' kotti_mysite.fanstatic.kotti_mysite'
+
+Restart your kotti site, visit the site in your browser and notice the shadow
+of the titles. A closer look to ``kotti.configurators`` you'll find in the next
+section.
+
+If you wanted to add a new JavaScript file, you would do this very
+similarly. To add a JavaScript file called mysite_script.js, you would add a
 fanstatic_ resource for it in ``kotti_mysite/kotti_mysite/fanstatic.py``
 like so:
 
 .. code-block:: python
 
-  kotti_mysite_js = Resource(library, "script.js")
+  mysite_js = Resource(library, "mysite_script.js")
 
 And change the last line to:
 
 .. code-block:: python
 
-  kotti_mysite_group = Group([kotti_mysite_css, kotti_mysite_js])
+  kotti_mysite = Group([css, js, mysite_js])
 
 .. _fanstatic: http://www.fanstatic.org/
 
@@ -181,7 +227,7 @@ add-ons have a chance to configure themselves.  The function in
 .. code-block:: python
 
   def kotti_configure(settings):
-     settings['kotti.fanstatic.view_needed'] += ' kotti_mysite.fanstatic.kotti_mysite_group'
+      settings['kotti.fanstatic.view_needed'] += ' kotti_mysite.fanstatic.kotti_mysite'
 
 Here, ``settings`` is a Python dictionary with all configuration variables in
 the ``[app:kotti]`` section of our ``app.ini``, plus the defaults.  The values
@@ -206,7 +252,7 @@ this:
 .. code-block:: python
 
   def kotti_configure(settings):
-      settings['kotti.fanstatic.view_needed'] = ' kotti_mysite.fanstatic.kotti_mysite_group'
+      settings['kotti.fanstatic.view_needed'] = ' kotti_mysite.fanstatic.kotti_mysite'
 
 This is useful if you've built your own custom theme.
 Alternatively, you can completely :ref:`override the master template

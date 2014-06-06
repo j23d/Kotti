@@ -11,26 +11,51 @@ on them.
 Adding Models
 -------------
 
-Let's create a new file at ``kotti_mysite/kotti_mysite/resources.py``
-and add the definition of the ``Poll`` content type:
+Do you remember the question for the name of your content type in the
+:ref:`last part <tut-1>` of the tutorial? We answered with ``Poll``. The
+bob template prepared the first of our content types in the file at
+``kotti_mysite/kotti_mysite/resources.py``. Open it and lets look to the
+definition of the ``Poll`` content type:
 
 .. code-block:: python
 
-  import sqlalchemy as sqla
+    from kotti.resources import Content
+    from sqlalchemy import Column
+    from sqlalchemy import ForeignKey
+    from sqlalchemy import Integer
+    from sqlalchemy import Unicode
 
-  from kotti.resources import Content
+    from kotti_mysite import _
 
 
-  class Poll(Content):
-      id = sqla.Column(
-          sqla.Integer(), sqla.ForeignKey('contents.id'), primary_key=True)
+    class Poll(Content):
+        """My content type"""
 
-      type_info = Content.type_info.copy(
-          name=u'Poll',
-          title=u'Poll',
-          add_view=u'add_poll',
-          addable_to=[u'Document'],
-          )
+        id = Column(
+            Integer(),
+            ForeignKey('contents.id'),
+            primary_key=True
+        )
+
+        # Add additional columns here
+        example_attribute = Column(
+            Unicode()
+        )
+
+        type_info = Content.type_info.copy(
+            name=u'Poll',
+            title=_(u'Poll'),
+            add_view=u'add_poll',
+            addable_to=['Document', ],
+            selectable_default_views=[
+                ('alternative-view', _(u"Alternative View")),
+            ],
+        )
+
+        def __init__(self, example_attribute=u"", **kwargs):
+            super(Poll, self).__init__(**kwargs)
+            self.example_attribute = example_attribute
+
 
 Things to note here:
 
@@ -45,11 +70,15 @@ Things to note here:
 - The type_info class attribute does essential configuration. We
   refer to name and title, two properties already defined as part of
   ``Content``, our base class.  The ``add_view`` defines the name of the add
-  view, which we'll come to in a second.  Finally, ``addable_to`` defines which
-  content types we can add ``Poll`` items to.
+  view, which we'll come to in a second.  The ``addable_to`` defines which
+  content types we can add ``Poll`` items to. Finally,
+  ``selectable_default_views`` defines an array of alternative views for
+  the content type.
 
 - We do not need to define any additional sqlaColumn() properties, as the title
-  is the only property we need for this content type.
+  is the only property we need for this content type. However the scaffold shows
+  us how to create new attributes for a content type. See this in the lines with
+  the name ``example_attribute`` in.
 
 We'll add another content class to hold the choices for the poll.  Add
 this into the same ``resources.py`` file:
@@ -58,8 +87,8 @@ this into the same ``resources.py`` file:
 
   class Choice(Content):
       id = sqla.Column(
-          sqla.Integer(), sqla.ForeignKey('contents.id'), primary_key=True)
-      votes = sqla.Column(sqla.Integer())
+          Integer(), ForeignKey('contents.id'), primary_key=True)
+      votes = Column(Integer())
 
       type_info = Content.type_info.copy(
           name=u'Choice',
@@ -87,26 +116,34 @@ Adding Forms and a View
 -----------------------
 
 Views (including forms) are typically put into a module called
-``views``.  Let's create a new file for this module at
-``kotti_mysite/kotti_mysite/views.py`` and add the following code:
+``views``.  Let's open the file in this module at
+``kotti_mysite/kotti_mysite/views.py`` and look at the following code:
 
 .. code-block:: python
 
-  import colander
+  from colander import SchemaNode
+  from colander import String
+  from kotti.views.edit.content import ContentSchema
 
+  from kotti_mysite import _
 
-  class PollSchema(colander.MappingSchema):
-      title = colander.SchemaNode(
-          colander.String(),
-          title=u'Question',
-          )
+  class PollSchema(ContentSchema):
+      """Schema for add / edit forms of Poll"""
 
+      example_attribute = SchemaNode(
+          String(),
+          title=_(u'Example Attribute'),
+          missing=u"",
+      )
 
-  class ChoiceSchema(colander.MappingSchema):
-      title = colander.SchemaNode(
-          colander.String(),
-          title=u'Choice',
-          )
+This is the definition for our Poll. You see that the schema is derived from
+the ``ContentSchema`` of Kotti itself, what provides a few basic attributes
+like title, description and body. Lets now add the schema for the choices:
+
+.. code-block:: python
+
+  class ChoiceSchema(ContentSchema):
+      pass
 
 Colander_ is the library that we use to define our schemas.  Colander
 allows us to validate schemas against form data.
@@ -114,35 +151,60 @@ allows us to validate schemas against form data.
 The two classes define the schemas for our add and edit forms.  That
 is, they specify which fields we want to display in the forms.
 
-Let's move on to building the actual forms.  Add this to ``views.py``:
+In the file ``views.py`` we already have definitions for the polls:
 
 .. code-block:: python
 
-  from kotti.views.form import AddFormView
-  from kotti.views.form import EditFormView
+    from kotti.views.form import AddFormView
+    from kotti.views.form import EditFormView
+    from pyramid.view import view_config
+    from pyramid.view import view_defaults
 
-  from kotti_mysite.resources import Choice
-  from kotti_mysite.resources import Poll
+    @view_config(name=Poll.type_info.add_view,
+                 permission='add',
+                 renderer='kotti:templates/edit/node.pt')
+    class PollAddForm(AddFormView):
 
-
-  class PollEditForm(EditFormView):
-      schema_factory = PollSchema
-
-
-  class PollAddForm(AddFormView):
-      schema_factory = PollSchema
-      add = Poll
-      item_type = u"Poll"
+        schema_factory = PollSchema
+        add = Poll
+        item_type = _(u"Poll")
 
 
-  class ChoiceEditForm(EditFormView):
-      schema_factory = ChoiceSchema
+    @view_config(name='edit',
+                 context=Poll,
+                 permission='edit',
+                 renderer='kotti:templates/edit/node.pt')
+    class PollEditForm(EditFormView):
+
+        schema_factory = PollSchema
+
+We are using the `view_config`_ decorator from pyramid to adding the view
+configuration to our site.
 
 
-  class ChoiceAddForm(AddFormView):
-      schema_factory = ChoiceSchema
-      add = Choice
-      item_type = u"Choice"
+Let's move on to building the form for the choices.  Add this to ``views.py``:
+
+.. code-block:: python
+
+    from kotti_mysite.resources import Choice
+
+    @view_config(name=Choice.type_info.add_view,
+                 permission='add',
+                 renderer='kotti:templates/edit/node.pt')
+    class ChoiceAddForm(AddFormView):
+
+        schema_factory = ChoiceSchema
+        add = Choice
+        item_type = _(u"Choice")
+
+
+    @view_config(name='edit',
+                 context=Choice,
+                 permission='edit',
+                 renderer='kotti:templates/edit/node.pt')
+    class ChoiceEditForm(EditFormView):
+
+        schema_factory = ChoiceSchema
 
 
 Using the ``AddFormView`` and ``EditFormView`` base classes from
@@ -173,53 +235,70 @@ We change the ``kotti_configure`` function to look like:
 Here, we've added our two content types to the site's available_types, a global
 registry.
 
-Now add a function called ``includeme`` to the same file:
+Because we are using the `view_config`_ decorator our add and edit forms are
+added automatically to the configuration with one call in the file
+``__init__.py``::
 
 .. code-block:: python
 
-  def includeme(config):
-      from kotti_mysite.resources import Poll
-      from kotti_mysite.resources import Choice
-      from kotti_mysite.views import PollAddForm
-      from kotti_mysite.views import PollEditForm
-      from kotti_mysite.views import ChoiceAddForm
-      from kotti_mysite.views import ChoiceEditForm
+    def includeme(config):
 
-      config.add_view(
-          PollAddForm,
-          name='add_poll',
-          permission='add',
-          renderer='kotti:templates/edit/node.pt',
-          )
-      config.add_view(
-          PollEditForm,
-          context=Poll,
-          name='edit',
-          permission='edit',
-          renderer='kotti:templates/edit/node.pt',
-          )
-      config.add_view(
-          ChoiceAddForm,
-          name='add_choice',
-          permission='add',
-          renderer='kotti:templates/edit/node.pt',
-          )
-      config.add_view(
-          ChoiceEditForm,
-          context=Choice,
-          name='edit',
-          permission='edit',
-          renderer='kotti:templates/edit/node.pt',
-          )
+        config.add_translation_dirs('kotti_mysite:locale')
+        config.scan(__name__)
 
-Here, we call ``config.add_view`` once for each form. The first argument
-of each call is the form class. The second argument gives the name of the
-view. The names of each add view, `add_poll` and `add_choice`, match the
-names set in the type_info class attribute of the types (Compare to the
+With the call to ``config.scan(__name__)`` the whole package is searched for
+decorated classes and functions and its added to the coniguration. We take
+a deeper look to the possible configuration options:
+
+
+.. code-block:: python
+
+    @view_config(name=Poll.type_info.add_view,
+                 permission='add',
+                 renderer='kotti:templates/edit/node.pt')
+    class PollAddForm(AddFormView):
+
+        schema_factory = PollSchema
+        add = Poll
+        item_type = _(u"Poll")
+
+
+    @view_config(name='edit',
+                 context=Poll,
+                 permission='edit',
+                 renderer='kotti:templates/edit/node.pt')
+    class PollEditForm(EditFormView):
+
+        schema_factory = PollSchema
+
+
+    @view_config(name=Choice.type_info.add_view,
+                 permission='add',
+                 renderer='kotti:templates/edit/node.pt')
+    class ChoiceAddForm(AddFormView):
+
+        schema_factory = ChoiceSchema
+        add = Choice
+        item_type = _(u"Choice")
+
+
+    @view_config(name='edit',
+                 context=Choice,
+                 permission='edit',
+                 renderer='kotti:templates/edit/node.pt')
+    class ChoiceEditForm(EditFormView):
+
+        schema_factory = ChoiceSchema
+
+
+The first argument of the decoration is the name of the view gives the name of
+the view. We get the names of each add view, `add_poll` and `add_choice`, from
+the set in the type_info class attribute of the types (Compare to the
 classes where Poll() and Choice() are defined). The names of the edit views
 are simply `edit`, the names of add views are simply `add`. We can, of course,
 add our own view names, but `add` and `edit` should be used for adding and
 editing respectively, as Kotti uses those names for its base functionality.
+
 
 Adding a Poll and Choices to the site
 -------------------------------------
@@ -253,15 +332,25 @@ the choices we added to our poll). Here is the code, added to ``views.py``.
 
 .. code-block:: python
 
-  from kotti_mysite.fanstatic import kotti_mysite_group
+    from kotti_mysite.fanstatic import kotti_mysite
 
+    @view_defaults(context=Poll, permission='view')
+    class PollView(object):
+        """View(s) for Poll"""
 
-  def poll_view(context, request):
-      kotti_mysite_group.need()
-      choices = context.values()
-      return {
-          'choices': choices
-      }
+        def __init__(self, context, request):
+
+            self.context = context
+            self.request = request
+
+        @view_config(name='view',
+                     renderer='kotti_mysite:templates/poll.pt')
+        def view(self):
+            kotti_mysite.need()
+            choices = context.values()
+            return {
+                'choices': choices
+            }
 
 To find out if a Choice was added to the ``Poll`` we are currently viewing, we
 compare it's *parent_id* attribute with the *id* of the Poll - if they are the
@@ -271,8 +360,10 @@ specified above.
 Finally, we return a dictionary of all choices under the keyword *choices*.
 
 Next on, we need a template to actually show our data. It could look something
-like this. Create a folder named ``templates`` and put the file ``poll.pt``
-into it.
+like this. Look into the folder named ``templates`` and open the file
+``poll.pt`` and change the content like this:
+
+>>> TODO: Poll.pt have to be renamed to poll.pt in bobtemplates.kotti!
 
 .. code-block:: html
 
@@ -297,20 +388,8 @@ template (so we keep the add/edit bar, base site structure etc.).
 The next line prints out the context.title (our question) inside the <h1> tag
 and then prints all choices (with links to the choice) as an unordered list.
 
-Now all that remains is linking the two together. We do this in the
-``__init__.py`` file, like this.
-
-.. code-block:: python
-
-  from kotti_mysite.views import poll_view
-
-  config.add_view(
-      poll_view,
-      context=Poll,
-      name='view',
-      permission='view',
-      renderer='kotti_mysite:templates/poll.pt',
-  )
+The linking of the view definitions with the configuration are already done
+with ``config.scan(__name__)`` in the ``inludeme`` function in ``__init__.py``.
 
 With this, we are done with the second tutorial. Restart the server instance,
 take a look at the new ``Poll`` view and play around with the template until
@@ -330,3 +409,5 @@ actually vote for one of the ``Poll`` options.
 
 .. _SQLAlchemy: http://www.sqlalchemy.org/
 .. _Colander: http://colander.readthedocs.org/
+.. _view_config: http://docs.pylonsproject.org/docs/pyramid/en/latest/narr/viewconfig.html#mapping-views-using-a-decorator-section
+
